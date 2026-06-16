@@ -1,3 +1,3 @@
-variable "proxmox_password" {
+variable "terra-key" {
   sensitive = true
 }
