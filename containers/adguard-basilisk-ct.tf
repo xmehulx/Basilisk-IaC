@@ -1,6 +1,6 @@
-resource "proxmox_virtual_environment_container" "proxy-basilisk" {
+resource "proxmox_virtual_environment_container" "adguard-basilisk" {
   node_name = "pve"
-  vm_id = 105
+  vm_id = 102
 
   unprivileged = true
 
@@ -9,16 +9,17 @@ resource "proxmox_virtual_environment_container" "proxy-basilisk" {
   }
   
   cpu {
-    cores = 2
+    cores = 1
   }
 
   memory {
-    dedicated = 1024
+    dedicated = 256
+    swap = 128
   }
 
   disk {
     datastore_id = "local-lvm"
-    size         = 7
+    size         = 4
   }
 
   operating_system {
@@ -27,7 +28,7 @@ resource "proxmox_virtual_environment_container" "proxy-basilisk" {
   }
 
   initialization {
-    hostname = "proxy-basilisk"
+    hostname = "adguard-basilisk"
 
     user_account {
       password = var.root_password
@@ -38,13 +39,9 @@ resource "proxmox_virtual_environment_container" "proxy-basilisk" {
     
     ip_config {
       ipv4 {
-        address = "10.0.0.121/24"
+        address = "10.0.0.124/24"
         gateway = "10.0.0.1"
       }
-    }
-
-    dns {
-      servers = ["10.0.0.124"]
     }
   }
   

@@ -1,18 +1,18 @@
 resource "proxmox_virtual_environment_container" "proxy-basilisk-tf" {
   node_name = "pve"
-  vm_id = 666
+  vm_id = 105 
   
   cpu {
-    cores = 1
+    cores = 2
   }
 
   memory {
-    dedicated = 256
+    dedicated = 1024
   }
 
   disk {
     datastore_id = "local-lvm"
-    size         = 2
+    size         = 7
   }
 
   operating_system {
@@ -23,7 +23,7 @@ resource "proxmox_virtual_environment_container" "proxy-basilisk-tf" {
     hostname = "proxy-basilisk"
     ip_config {
       ipv4 {
-        address = "10.0.0.251"
+        address = "10.0.0.121"
         gateway = "10.0.0.1"
       }
     }

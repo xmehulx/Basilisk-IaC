@@ -1,0 +1,75 @@
+- name: Install and configure Vaultwarden
+  hosts: test-basilisk
+  become: true
+
+  vars:
+    vaultwarden_data_dir: /opt/vaultwarden
+    compose_dir: "{{ vaultwarden_data_dir }}"
+    docker_users: ["ansible"] # Non-root users 
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Install prerequisites
+      apt:
+        name:
+          - curl
+          - git
+          - ca-certificates
+          - gnupg
+        state: present
+
+    - name: Install Docker via official script
+      shell: |
+        curl -fsSL https://get.docker.com | sh
+      args:
+        creates: /usr/bin/docker
+
+    - name: Enable and start Docker service
+      service:
+        name: docker
+        enabled: yes
+        state: started
+
+    - name: Install Docker Compose plugin
+      apt:
+        name: docker-compose-plugin
+        state: present
+
+    - name: Add users to docker group
+      user:
+        name: "{{ item }}"
+        groups: docker
+        append: yes
+      loop: "{{ docker_users }}"
+      when: docker_users | length > 0
+
+    - name: Create Vaultwarden directory
+      file:
+        path: "{{ compose_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Create data directory
+      file:
+        path: "{{ compose_dir }}/data"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Deploy docker-compose.yml
+      template:
+        src: vaultwarden-docker-compose.yml
+        dest: "{{ compose_dir }}/docker-compose.yml"
+        mode: "0644"
+
+    - name: Start Vaultwarden via Docker Compose
+      community.docker.docker_compose_v2:
+        project_src: "{{ compose_dir }}"
+        state: present

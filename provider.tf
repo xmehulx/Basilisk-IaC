@@ -8,6 +8,6 @@ terraform {
 
 provider "proxmox" {
   endpoint = "https://10.0.0.236:8006/api2/json"
-  api_token = var.terra-key 
+  api_token = var.terra_key 
   insecure = true
 }

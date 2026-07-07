@@ -1,0 +1,118 @@
+---
+- name: Setup Tor Repository and Auto-Updates on Debian LXC
+  hosts: tor-basilisk
+  become: true
+  vars:
+    automatic_reboot: "true"
+    # --- TOR RELAY CONFIGURATION VARIABLES ---
+    tor_nickname: "1zvergrelay"
+    tor_contact_info: "1zverg.relay@proton.me"
+    tor_or_port: "443"  # Forward this!
+
+  tasks:
+    - name: [1/12] | Install baseline required packages
+      ansible.builtin.apt:
+        name:
+          - apt-transport-https
+          - gnupg
+          - unattended-upgrades
+          - apt-listchanges
+        state: present
+        update_cache: true
+
+    - name: [2/12] | Download and de-armor Tor GPG signing key
+      ansible.builtin.get_url:
+        url: https://deb.torproject.org/torproject.org/A3C4F0F979CAA22CDBA8F512EE8CBC9E886DDD89.asc
+        dest: /tmp/tor-key.asc
+        mode: '0644'
+
+    - name: [3/12] | De-armor the GPG key into the correct keyring location
+      ansible.builtin.command:
+        cmd: gpg --dearmor -o /usr/share/keyrings/deb.torproject.org-keyring.gpg /tmp/tor-key.asc
+        creates: /usr/share/keyrings/deb.torproject.org-keyring.gpg
+
+    - name: [4/12] | Clean up temporary armor key file
+      ansible.builtin.file:
+        path: /tmp/tor-key.asc
+        state: absent
+
+    - name: [5/12] | Create modern deb822 tor.sources file with dynamic Debian codename
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/tor.sources
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          Types: deb deb-src
+          URIs: https://deb.torproject.org/torproject.org/
+          Suites: {{ ansible_distribution_release }}
+          Components: main
+          Signed-By: /usr/share/keyrings/deb.torproject.org-keyring.gpg
+
+    - name: [6/12] | Configure 50unattended-upgrades for Debian
+      ansible.builtin.copy:
+        dest: /etc/apt/apt.conf.d/50unattended-upgrades
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          Unattended-Upgrade::Origins-Pattern {
+              "origin=Debian,codename=${distro_codename},label=Debian-Security";
+              "origin=TorProject";
+          };
+          Unattended-Upgrade::Package-Blacklist {
+          };
+          Unattended-Upgrade::Automatic-Reboot "{{ automatic_reboot }}";
+
+    - name: [7/12] | Configure 20auto-upgrades
+      ansible.builtin.copy:
+        dest: /etc/apt/apt.conf.d/20auto-upgrades
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          APT::Periodic::Update-Package-Lists "1";
+          APT::Periodic::AutocleanInterval "5";
+          APT::Periodic::Unattended-Upgrade "1";
+          APT::Periodic::Verbose "1";
+
+    - name: [8/12] | Update apt cache to pull in Tor repository indexes
+      ansible.builtin.apt:
+        update_cache: true
+
+    - name: [9/12] | Update apt database and install Tor package
+      ansible.builtin.apt:
+        name:
+          - tor
+        state: present
+        update_cache: true
+
+    - name: [10/12] | Populate /etc/tor/torrc configuration file
+      ansible.builtin.copy:
+        dest: /etc/tor/torrc
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          Nickname    {{ tor_nickname }}
+          ContactInfo {{ tor_contact_info }}
+          ORPort      {{ tor_or_port }}
+          ExitRelay   0
+          SocksPort   0
+      register: torrc_config
+
+    - name: [11/12] | Restart and enable Tor service daemon
+      ansible.builtin.systemd_service:
+        name: tor@default
+        state: restarted
+        enabled: true
+      when: torrc_config.changed
+
+    - name: [12/12] | Test unattended-upgrades configuration (Dry Run)
+      ansible.builtin.command: unattended-upgrade --debug --dry-run
+      register: dry_run_output
+      changed_when: false
+
+    - name: Display dry-run debug output
+      ansible.builtin.debug:
+        var: dry_run_output.stdout_lines

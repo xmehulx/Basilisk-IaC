@@ -1,29 +1,45 @@
-resource "proxmox_virtual_environment_container" "proxy-basilisk-tf" {
+resource "proxmox_virtual_environment_container" "SearXNG-basilisk" {
   node_name = "pve"
-  vm_id = 104
+  vm_id = 104 
+
+  unprivileged = true
+
+  features {
+    nesting = true
+  }
   
   cpu {
-    cores = 2
+    cores = 1
   }
 
   memory {
-    dedicated = 1024
+    dedicated = 256
+    swap      = 256
   }
 
   disk {
     datastore_id = "local-lvm"
-    size         = 7
+    size         = 8
   }
 
   operating_system {
     template_file_id = "local:vztmpl/debian-12-standard_12.12-1_amd64.tar.zst"
+    type = "debian"
   }
 
   initialization {
     hostname = "searxng-basilisk"
+
+    user_account {
+      password = var.root_password
+      keys = [
+        file("/home/infra/basilisk-iac/.ssh/root-basilisk.pub")
+      ]
+    }
+    
     ip_config {
       ipv4 {
-        address = "10.0.0.126"
+        address = "10.0.0.126/24"
         gateway = "10.0.0.1"
       }
     }
@@ -31,5 +47,11 @@ resource "proxmox_virtual_environment_container" "proxy-basilisk-tf" {
     dns {
       servers = ["10.0.0.124"]
     }
+  }
+  
+  network_interface {
+    name = "eth0"
+    bridge = "vmbr0"
+    firewall = true
   }
 }

@@ -1,0 +1,62 @@
+---
+- name: Bootstrap LXC container for Ansible user creation
+  hosts: test-basilisk
+  gather_facts: false
+  vars:
+    ansible_user: root
+
+  pre_tasks:
+    - name: Remove old SSH host key from local known_hosts
+      delegate_to: localhost
+      become: false # Runs as your local user, not root
+      ansible.builtin.command:
+        cmd: "ssh-keygen -R {{ inventory_hostname }}"
+      failed_when: false # Ignore errors if the IP isn't in known_hosts yet
+
+  tasks:
+    - name: Ensure sudo is installed
+      ansible.builtin.package:
+        name: sudo
+        state: present
+
+    - name: Update apt cache and upgrade installed packages
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+        upgrade: dist
+        autoremove: true
+        autoclean: true
+
+    - name: Create the ansible user
+      ansible.builtin.user:
+        name: ansible
+        shell: /bin/bash
+        groups: sudo
+        append: true
+
+    - name: Deploy SSH Key for the ansible user
+      ansible.posix.authorized_key:
+        user: ansible
+        state: present
+        key: "{{ lookup('file', '~/.ssh/ansible_basilisk.pub') }}"
+
+    - name: Allow ansible user passwordless sudo
+      ansible.builtin.lineinfile:
+        path: /etc/sudoers.d/ansible
+        line: "ansible ALL=(ALL) NOPASSWD:ALL"
+        validate: '/usr/sbin/visudo -cf %s'
+        create: true
+        mode: '0440'
+
+    - name: Secure SSH - Disable root login entirely
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^PermitRootLogin'
+        line: 'PermitRootLogin no'
+      notify: Restart ssh
+
+  handlers:
+    - name: Restart ssh
+      ansible.builtin.service:
+        name: ssh
+        state: restarted

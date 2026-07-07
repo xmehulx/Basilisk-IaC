@@ -1,6 +1,6 @@
-resource "proxmox_virtual_environment_container" "proxy-basilisk" {
+resource "proxmox_virtual_environment_container" "tor-tf" {
   node_name = "pve"
-  vm_id = 105
+  vm_id = 111
 
   unprivileged = true
 
@@ -9,16 +9,16 @@ resource "proxmox_virtual_environment_container" "proxy-basilisk" {
   }
   
   cpu {
-    cores = 2
+    cores = 2 
   }
 
   memory {
-    dedicated = 1024
+    dedicated = 1024 
   }
 
   disk {
     datastore_id = "local-lvm"
-    size         = 7
+    size         = 2
   }
 
   operating_system {
@@ -27,24 +27,25 @@ resource "proxmox_virtual_environment_container" "proxy-basilisk" {
   }
 
   initialization {
-    hostname = "proxy-basilisk"
+    hostname = "tor-basilisk"
 
     user_account {
       password = var.root_password
       keys = [
-        file("/home/infra/basilisk-iac/.ssh/root-basilisk.pub")
+        file("/home/infra/.ssh/root-basilisk.pub"),
+        file("/home/infra/.ssh/ansible_basilisk.pub")
       ]
     }
     
     ip_config {
       ipv4 {
-        address = "10.0.0.121/24"
+        address = "10.0.0.2/24"
         gateway = "10.0.0.1"
       }
     }
 
     dns {
-      servers = ["10.0.0.124"]
+      servers = ["1.1.1.1", "9.9.9.9"]
     }
   }
   
