@@ -1,12 +1,13 @@
 ---
 - name: Bootstrap LXC container for Ansible user creation
-  hosts: test-basilisk
+  hosts: frigate-basilisk
   gather_facts: false
+  become: true
   vars:
-    ansible_user: root
+    ansible_user: root 
 
   pre_tasks:
-    - name: Remove old SSH host key from local known_hosts
+    - name: 1/7] - [Remove old SSH host key from local known_hosts
       delegate_to: localhost
       become: false # Runs as your local user, not root
       ansible.builtin.command:
@@ -14,12 +15,12 @@
       failed_when: false # Ignore errors if the IP isn't in known_hosts yet
 
   tasks:
-    - name: Ensure sudo is installed
+    - name: 2/7] - [Ensure sudo is installed
       ansible.builtin.package:
         name: sudo
         state: present
 
-    - name: Update apt cache and upgrade installed packages
+    - name: 3/7] - [Update apt cache and upgrade installed packages
       ansible.builtin.apt:
         update_cache: true
         cache_valid_time: 3600
@@ -27,20 +28,20 @@
         autoremove: true
         autoclean: true
 
-    - name: Create the ansible user
+    - name: 4/7] - [Create the ansible user
       ansible.builtin.user:
         name: ansible
         shell: /bin/bash
         groups: sudo
         append: true
 
-    - name: Deploy SSH Key for the ansible user
+    - name: 5/7] - [Deploy SSH Key for the ansible user
       ansible.posix.authorized_key:
         user: ansible
         state: present
         key: "{{ lookup('file', '~/.ssh/ansible_basilisk.pub') }}"
 
-    - name: Allow ansible user passwordless sudo
+    - name: 6/7] - [Allow ansible user passwordless sudo
       ansible.builtin.lineinfile:
         path: /etc/sudoers.d/ansible
         line: "ansible ALL=(ALL) NOPASSWD:ALL"
@@ -48,7 +49,7 @@
         create: true
         mode: '0440'
 
-    - name: Secure SSH - Disable root login entirely
+    - name: 7/7] - [Secure SSH - Disable root login entirely
       ansible.builtin.lineinfile:
         path: /etc/ssh/sshd_config
         regexp: '^PermitRootLogin'

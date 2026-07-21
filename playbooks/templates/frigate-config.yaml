@@ -1,0 +1,21 @@
+mqtt:
+  enabled: false
+
+go2rtc:
+  streams:
+    tapo_c200:
+      - "{{ tapo_rtsp }}"
+
+cameras:
+  tapo_c200:
+    enabled: true
+    ffmpeg:
+      inputs:
+	- path: "rtsp://127.0.0.1:8554/tapo_c200"
+	  roles:
+	    - record
+    record:
+      enabled: true
+      retain:
+	days: 7
+	mode: all

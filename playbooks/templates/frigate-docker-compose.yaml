@@ -1,0 +1,18 @@
+services:
+  frigate:
+    container_name: frigate
+    image: ghcr.io/blakeblackshear/frigate:stable
+    restart: unless-stopped
+    shm_size: "512mb"
+    ports:
+      - "5000:5000"
+      - "8554:8554" # RTSP feeds
+      - "8555:8555/tcp" # WebRTC
+      - "8555:8555/udp" # WebRTC
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - "{{ frigate_dir }}/config/config.yaml:/config/config.yaml"
+      - "{{ frigate_media }}:/media/frigate"
+    environment:
+      FRIGATE_RTSP_PASSWORD: |
+        {{ frigate_password }}

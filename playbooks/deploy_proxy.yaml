@@ -1,0 +1,72 @@
+---
+- name: Install and configure Caddy
+  hosts: proxy-basilisk
+  become: true
+
+  vars:
+    caddy_domains:
+      - domain: vault.basilisk.home
+        upstream: 10.0.0.125:8080
+
+      - domain: search.basilisk.home
+        upstream: 10.0.0.126:8080
+
+      - domain: photos.basilisk.home
+        upstream: 10.0.0.30:2283
+
+      - domain: search.basilisk.home
+        upstream: 10.0.0.126:8080
+
+  tasks:
+    - name: [1/7] Install prerequisites
+      apt:
+        name:
+          - debian-keyring
+          - debian-archive-keyring
+          - apt-transport-https
+          - curl
+          - gnupg
+        update_cache: true
+
+    - name: [2/7] Create keyring directory
+      file:
+        path: /usr/share/keyrings
+        state: directory
+        mode: "0755"
+
+    - name: [3/7] Download Caddy signing key
+      get_url:
+        url: https://dl.cloudsmith.io/public/caddy/stable/gpg.key
+        dest: /tmp/caddy.key
+        mode: "0644"
+
+    - name: [4/7] Convert signing key
+      shell: |
+        gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg /tmp/caddy.key
+      args:
+        creates: /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+
+    - name: [5/7] Add Caddy repository
+      copy:
+        dest: /etc/apt/sources.list.d/caddy-stable.list
+        content: |
+          deb [signed-by=/usr/share/keyrings/caddy-stable-archive-keyring.gpg] https://dl.cloudsmith.io/public/caddy/stable/deb/debian any-version main
+        mode: "0644"
+
+    - name: [6/7] Install Caddy
+      apt:
+        name: caddy
+        update_cache: true
+
+    - name: [7/7] Generate Caddyfile from template
+      template:
+        src: templates/Caddyfile.j2
+        dest: /etc/caddy/Caddyfile
+        mode: "0644"
+      notify: Reload Caddy
+
+  handlers:
+    - name: Reload Caddy
+      systemd:
+        name: caddy
+        state: reloaded

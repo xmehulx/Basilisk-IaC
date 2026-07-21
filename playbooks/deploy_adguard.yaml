@@ -1,0 +1,58 @@
+---
+- name: Install and configure AdGuard Home
+  hosts: adguard-basilisk
+  become: true
+
+  vars:
+    adguard_install_dir: /opt/AdGuardHome
+
+  tasks:
+    - name: [1/6] Install required packages
+      apt:
+        name:
+          - curl
+          - wget
+          - tar
+          - ca-certificates
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: [2/6] Download and extract AdGuard Home
+      unarchive:
+        src: https://static.adguard.com/adguardhome/release/AdGuardHome_linux_amd64.tar.gz
+        dest: /opt
+        remote_src: yes
+        creates: "{{ adguard_install_dir }}/AdGuardHome"
+
+    - name: [3/6] Ensure correct binary permissions
+      file:
+        path: "{{ adguard_install_dir }}/AdGuardHome"
+        mode: "0755"
+
+    - name: [4/6] Deploy configuration template
+      template:
+        src: adguardHome.yaml.j2
+        dest: "{{ adguard_install_dir }}/AdGuardHome.yaml"
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Restart AdGuard
+
+    - name: [5/6] Install native AdGuard systemd service
+      command:
+        cmd: ./AdGuardHome -s install
+        chdir: "{{ adguard_install_dir }}"
+      args:
+        creates: /etc/systemd/system/AdGuardHome.service
+
+    - name: [6/6] Enable and start AdGuard Home service
+      systemd:
+        name: AdGuardHome
+        enabled: yes
+        state: started
+
+  handlers:
+    - name: Restart AdGuard
+      systemd:
+        name: AdGuardHome
+        state: restarted

@@ -1,13 +1,13 @@
 ---
 - name: Deploy SearXNG via Docker Compose (Valkey Stack)
-  hosts: all
+  hosts: searxng-basilisk
   become: true
   vars:
     searxng_dir: /opt/searxng
     local_domain: "search.basilisk.home"
 
   tasks:  # <--- CRITICAL: All your tasks must live under this keyword
-    - name: Ensure dependencies are installed
+    - name: [1/11] Ensure dependencies are installed
       ansible.builtin.package:
         name:
           - curl
@@ -17,26 +17,26 @@
         update_cache: true
 
     # ---- 1. Install Docker ----
-    - name: Download Docker installation script
+    - name: [2/11] Download Docker installation script
       ansible.builtin.get_url:
         url: https://get.docker.com
         dest: /tmp/get-docker.sh
         mode: '0755'
 
-    - name: Run Docker installation script
+    - name: [3/11] Run Docker installation script
       ansible.builtin.command:
         cmd: /tmp/get-docker.sh
       args:
         creates: /usr/bin/docker
 
-    - name: Start and enable Docker service
+    - name: [4/11] Start and enable Docker service
       ansible.builtin.service:
         name: docker
         state: started
         enabled: true
 
     # ---- 2. Directory & Config Setup ----
-    - name: Create required directories
+    - name: [5/11] Create required directories
       ansible.builtin.file:
         path: "{{ item }}"
         state: directory
@@ -45,18 +45,18 @@
         - "{{ searxng_dir }}"
         - "{{ searxng_dir }}/core-config"
 
-    - name: Download official production settings.yml template
+    - name: [6/11] Download official production settings.yml template
       ansible.builtin.get_url:
         url: https://github.com/searxng/searxng/raw/refs/heads/master/searx/settings.yml
         dest: "{{ searxng_dir }}/core-config/settings.yml"
         mode: '0644'
         force: true
 
-    - name: Generate a secure random secret key
+    - name: [7/11] Generate a secure random secret key
       ansible.builtin.set_fact:
         searxng_secret: "{{ lookup('ansible.builtin.password', '/dev/null chars=ascii_letters,digits length=32') }}"
 
-    - name: Inject custom instance settings into settings.yml
+    - name: [8/11] Inject custom instance settings into settings.yml
       ansible.builtin.blockinfile:
         path: "{{ searxng_dir }}/core-config/settings.yml"
         marker: "# {mark} ANSIBLE CUSTOM PARAMETERS"
@@ -71,7 +71,7 @@
           redis:
             url: redis://searxng-valkey:6379/0
 
-    - name: Create .env file for Compose
+    - name: [9/11] Create .env file for Compose
       ansible.builtin.copy:
         dest: "{{ searxng_dir }}/.env"
         mode: '0644'
@@ -80,7 +80,7 @@
           SEARXNG_PORT=8080
           SEARXNG_BIND_ADDRESS=0.0.0.0
 
-    - name: Create docker-compose.yml (Your Optimized Version)
+    - name: [10/11] Create docker-compose.yml
       ansible.builtin.copy:
         dest: "{{ searxng_dir }}/docker-compose.yml"
         mode: '0644'
@@ -115,7 +115,7 @@
             valkey-data:
 
     # ---- 3. Fire it up ----
-    - name: Start SearXNG stack via Docker Compose
+    - name: [11/11] Start SearXNG stack via Docker Compose
       ansible.builtin.command:
         cmd: docker compose up -d --force-recreate --remove-orphans
       args:

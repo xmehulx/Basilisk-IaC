@@ -3,3 +3,6 @@
 .env
 *.backup
 *.bak
+*.swp
+vault.yaml
+vault.yml

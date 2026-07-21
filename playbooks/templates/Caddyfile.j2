@@ -1,0 +1,11 @@
+{
+    email admin@example.com
+}
+
+{% for site in caddy_domains %}
+{{ site.domain }} {
+    tls internal
+    reverse_proxy {{ site.upstream }}
+}
+
+{% endfor %}

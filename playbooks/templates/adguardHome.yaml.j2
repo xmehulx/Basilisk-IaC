@@ -1,0 +1,83 @@
+http:
+  address: "{{ bind_host }}:{{ admin_port }}"
+
+users:
+  - name: "{{ admin_user }}"
+    password: "{{ admin_password_hash }}"
+
+dns:
+  bind_hosts:
+    "{{ bind_host }}"
+  port: {{ dns_port }}
+  protection_enabled: true
+  ratelimit: {{ ratelimit }}
+  blocking_mode: {{ blocking_mode }}
+  cache_size: {{ cache_size }}
+
+  upstream_dns:
+{% for dns in upstream_dns %}
+    - {{ dns }}
+{% endfor %}
+
+  bootstrap_dns:
+{% for dns in bootstrap_dns %}
+    - {{ dns }}
+{% endfor %}
+
+  rewrites:
+{% for rewrite in rewrites %}
+    - domain: "{{ rewrite.domain }}"
+      answer: "{{ rewrite.answer }}"
+{% endfor %}
+
+  filters_update_interval: 24
+
+querylog:
+  enabled: {{ querylog_enabled }}
+  file_enabled: true
+  interval: 2160
+  size_memory: {{ querylog_size }}
+
+statistics:
+  enabled: {{ statistics_enabled }}
+
+filtering:
+
+  protection_enabled: true
+
+  safe_search:
+    enabled: {{ safesearch_enabled }}
+
+  parental_enabled: {{ parental_enabled }}
+
+  safe_browsing:
+    enabled: {{ safe_browsing_enabled }}
+
+  rewrites: []
+
+  filters:
+{% for filter in filters %}
+    - enabled: {{ filter.enabled | lower }}
+      url: "{{ filter.url }}"
+{% endfor %}
+
+  user_rules:
+{% for rule in custom_rules %}
+    - "{{ rule }}"
+{% endfor %}
+
+tls:
+  enabled: {{ enable_https }}
+  port_https: {{ https_port }}
+  port_http: {{ http_port }}
+  certificate_path: "{{ tls_cert }}"
+  private_key_path: "{{ tls_key }}"
+
+dhcp:
+  enabled: {{ enable_dhcp }}
+  interface_name: "{{ dhcp_interface }}"
+  gateway_ip: "{{ dhcp_gateway }}"
+  subnet_mask: "{{ dhcp_subnet }}"
+  range_start: "{{ dhcp_start }}"
+  range_end: "{{ dhcp_end }}"
+  lease_duration: {{ dhcp_lease }}

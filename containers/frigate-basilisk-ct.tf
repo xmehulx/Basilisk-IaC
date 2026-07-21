@@ -1,6 +1,6 @@
-resource "proxmox_virtual_environment_container" "proxy-basilisk" {
+resource "proxmox_virtual_environment_container" "frigate-basilisk" {
   node_name = "pve"
-  vm_id = 105
+  vm_id = 107 
 
   unprivileged = true
 
@@ -9,16 +9,22 @@ resource "proxmox_virtual_environment_container" "proxy-basilisk" {
   }
   
   cpu {
-    cores = 1 
+    cores = 4
   }
 
   memory {
-    dedicated = 256
+    dedicated = 4096
+    swap = 1024
   }
 
   disk {
     datastore_id = "local-lvm"
-    size         = 4
+    size         = 20
+  }
+
+  mount_point {
+    volume = "/mnt/nvme/frigate"
+    path   = "/media/frigate"
   }
 
   operating_system {
@@ -27,7 +33,7 @@ resource "proxmox_virtual_environment_container" "proxy-basilisk" {
   }
 
   initialization {
-    hostname = "proxy-basilisk"
+    hostname = "debian-basilisk"
 
     user_account {
       password = var.root_password
@@ -38,7 +44,7 @@ resource "proxmox_virtual_environment_container" "proxy-basilisk" {
     
     ip_config {
       ipv4 {
-        address = "10.0.0.121/24"
+        address = "10.0.0.122/24"
         gateway = "10.0.0.1"
       }
     }

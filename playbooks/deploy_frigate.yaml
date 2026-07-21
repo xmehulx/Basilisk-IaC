@@ -1,0 +1,95 @@
+---
+- name: Install Frigate
+  hosts: frigate-basilisk
+  become: true
+
+  vars:
+    frigate_dir: /opt/frigate
+    frigate_media: /media/frigate
+    tapo_rtsp: "rtsp://{{ dev.cam01.user }}:{{ rtsp_password }}@{{ dev.cam01.ip }}/stream1"
+
+  tasks:
+    - name: 1/12] -Install Docker Engine (Debian/Ubuntu)
+      block:
+      - name: 1/12] - Ensure required prerequisite packages are installed
+        ansible.builtin.apt:
+          name:
+            - ca-certificates
+            - curl
+            - gnupg
+          state: present
+          update_cache: yes
+
+      - name: 2/12] - Create directory for Apt keyrings
+        ansible.builtin.file:
+          path: /etc/apt/keyrings
+          state: directory
+          mode: '0755'
+
+      - name: 3/12] - Download Docker's official GPG key
+        ansible.builtin.get_url:
+          url: https://download.docker.com/linux/debian/gpg
+          dest: /etc/apt/keyrings/docker.asc
+          mode: '0644'
+          force: true
+
+      - name: 4/12] - De-armor Docker GPG key for APT
+        command: gpg --dearmor --yes --output /etc/apt/keyrings/docker.gpg /etc/apt/keyrings/docker.asc
+        args:
+          creates: /etc/apt/keyrings/docker.gpg 
+
+      - name: 5/12] - Add Docker repository to Apt sources
+        ansible.builtin.deb822_repository:
+          repo: "deb [signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian {{ ansible_distribution_release }} stable"
+          state: present
+          filename: docker
+          update_cache: yes
+
+      - name: 6/12] - Install Docker packages
+        ansible.builtin.apt:
+          name:
+            - docker-ce
+            - docker-ce-cli
+            - containerd.io
+            - docker-buildx-plugin
+            - docker-compose-plugin
+          state: present
+          update_cache: true
+
+      - name: 7/12] - Ensure Docker service is running and enabled
+        ansible.builtin.service:
+          name: docker
+          state: started
+          enabled: yes
+
+    - name: 8/12] - Create base directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - "{{ frigate_dir }}"
+        - "{{ frigate_dir }}/config"
+
+    - name: 9/12] - Create media directory with write permissions
+      file:
+        path: "{{ frigate_media }}"
+        state: directory
+        mode: "0777" # Generous permissions to handle LXC user-mapping mismatches for video storage
+
+    - name: 10/12] - Deploy Frigate config
+      template:
+        src: templates/frigate-config.yaml
+        dest: "{{ frigate_dir }}/config/config.yaml"
+        mode: "0644"
+
+    - name: 11/12] - Deploy Docker Compose file
+      template:
+        src: templates/frigate-docker-compose.yaml
+        dest: "{{ frigate_dir }}//compose.yaml"
+        mode: "0644"
+
+    - name: 12/12] - Start Frigate
+      community.docker.docker_compose_v2:
+        project_src: "{{ frigate_dir }}"
+        state: present

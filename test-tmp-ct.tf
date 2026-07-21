@@ -1,6 +1,6 @@
-resource "proxmox_virtual_environment_container" "test-tf" {
+resource "proxmox_virtual_environment_container" "frigate-basilisk" {
   node_name = "pve"
-  vm_id = 666
+  vm_id = 107 
 
   unprivileged = true
 
@@ -9,16 +9,17 @@ resource "proxmox_virtual_environment_container" "test-tf" {
   }
   
   cpu {
-    cores = 1 
+    cores = 4
   }
 
   memory {
-    dedicated = 256
+    dedicated = 4096
+    swap = 1024
   }
 
   disk {
     datastore_id = "local-lvm"
-    size         = 2
+    size         = 40
   }
 
   operating_system {
@@ -27,7 +28,7 @@ resource "proxmox_virtual_environment_container" "test-tf" {
   }
 
   initialization {
-    hostname = "test-basilisk"
+    hostname = "frigate-basilisk"
 
     user_account {
       password = var.root_password
@@ -39,7 +40,7 @@ resource "proxmox_virtual_environment_container" "test-tf" {
     
     ip_config {
       ipv4 {
-        address = "10.0.0.251/24"
+        address = "10.0.0.122/24"
         gateway = "10.0.0.1"
       }
     }

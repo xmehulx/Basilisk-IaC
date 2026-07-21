@@ -65,8 +65,8 @@
 
     - name: Deploy docker-compose.yml
       template:
-        src: vaultwarden-docker-compose.yml
-        dest: "{{ compose_dir }}/docker-compose.yml"
+        src: vaultwarden-docker-compose.yaml
+        dest: "{{ compose_dir }}/docker-compose.yaml"
         mode: "0644"
 
     - name: Start Vaultwarden via Docker Compose
