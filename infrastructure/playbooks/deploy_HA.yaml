@@ -1,0 +1,98 @@
+---
+- name: Deploy Home Assistant Container
+  hosts: debian-basilisk
+  become: true
+  gather_facts: true
+
+  vars:
+    homeassistant_dir: /opt/homeassistant
+    homeassistant_timezone: America/Toronto
+  tasks:
+    - name: Install Docker Engine
+      block:
+      - name: 1/10] - Ensure required prerequisite packages are installed
+        ansible.builtin.apt:
+          name:
+            - ca-certificates
+            - curl
+            - gnupg
+          state: present
+          update_cache: yes
+
+      - name: 2/10] - Create directory for Apt keyrings
+        ansible.builtin.file:
+          path: /etc/apt/keyrings
+          state: directory
+          mode: '0755'
+
+      - name: 3/10] - Download Docker's official GPG key
+        ansible.builtin.get_url:
+          url: https://download.docker.com/linux/debian/gpg
+          dest: /etc/apt/keyrings/docker.asc
+          mode: '0644'
+          force: true
+
+      - name: 4/10] - De-armor Docker GPG key for APT
+        command: gpg --dearmor --yes --output /etc/apt/keyrings/docker.gpg /etc/apt/keyrings/docker.asc
+        args:
+          creates: /etc/apt/keyrings/docker.gpg
+
+      - name: 5/10] - Add Docker repository to Apt sources
+        ansible.builtin.deb822_repository:
+          name: docker
+          types: [deb]
+          uris: "https://download.docker.com/linux/debian/"
+          signed_by: /etc/apt/keyrings/docker.gpg
+          suites: "{{ ansible_facts['distribution_release'] }}"
+          components: [main]
+          state: present
+
+      - name: 6/10] - Install Docker packages
+        ansible.builtin.apt:
+          name:
+            - docker-ce
+            - docker-ce-cli
+            - containerd.io
+            - docker-buildx-plugin
+            - docker-compose-plugin
+          state: present
+          update_cache: true
+
+      - name: 7/10] - Ensure Docker service is running and enabled
+        ansible.builtin.service:
+          name: docker
+          state: started
+          enabled: yes
+
+    - name: 8/10] - Create Home Assistant directory
+      ansible.builtin.file:
+        path: "{{ homeassistant_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: 9/10] - Create Home Assistant compose file
+      ansible.builtin.copy:
+        dest: "{{ homeassistant_dir }}/compose.yaml"
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          services:
+            homeassistant:
+              container_name: homeassistant
+              image: ghcr.io/home-assistant/home-assistant:stable
+              restart: unless-stopped
+              environment:
+                TZ: "{{ homeassistant_timezone }}"
+              volumes:
+                - {{ homeassistant_dir }}/config:/config
+                - /etc/localtime:/etc/localtime:ro
+                - /run/dbus:/run/dbus:ro
+              network_mode: host
+
+    - name: 10/10] - Start Home Assistant
+      community.docker.docker_compose_v2:
+        project_src: "{{ homeassistant_dir }}"
+        state: present

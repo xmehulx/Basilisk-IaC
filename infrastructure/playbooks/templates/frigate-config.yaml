@@ -1,0 +1,36 @@
+mqtt:
+  enabled: true
+
+go2rtc:
+  streams:
+    cam_01_hidef:
+      - {{ cam_01_rtsp_hidef }}
+    cam_01_lodef:
+      - {{ cam_01_rtsp_lodef }}
+
+cameras:
+  tapo_c200:
+    enabled: true
+    ffmpeg:
+      inputs:
+        - path: "rtsp://127.0.0.1:8554/cam_01_hidef"
+          roles:
+            - record
+        - path: "rtsp://127.0.0.1:8554/cam_01_lodef"
+          roles:
+            - detect
+
+    detect:
+      enabled: true  # Default to OFF
+    record:
+      enabled: true
+      motion:
+        days: 3
+      alerts:
+        retain:
+          days: 30
+          mode: motion
+      detections:
+        retain:
+          days: 30
+          mode: motion

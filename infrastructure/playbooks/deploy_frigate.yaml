@@ -6,10 +6,11 @@
   vars:
     frigate_dir: /opt/frigate
     frigate_media: /media/frigate
-    tapo_rtsp: "rtsp://{{ dev.cam01.user }}:{{ rtsp_password }}@{{ dev.cam01.ip }}/stream1"
+    cam_01_rtsp_hidef: "rtsp://{{ dev.cam01.user }}:{{ rtsp_password }}@{{ dev.cam01.ip }}/stream1"
+    cam_01_rtsp_lodef: "rtsp://{{ dev.cam01.user }}:{{ rtsp_password }}@{{ dev.cam01.ip }}/stream2"
 
   tasks:
-    - name: 1/12] -Install Docker Engine (Debian/Ubuntu)
+    - name: Install Docker Engine
       block:
       - name: 1/12] - Ensure required prerequisite packages are installed
         ansible.builtin.apt:
@@ -40,10 +41,16 @@
 
       - name: 5/12] - Add Docker repository to Apt sources
         ansible.builtin.deb822_repository:
-          repo: "deb [signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian {{ ansible_distribution_release }} stable"
+          name: docker
+          types: [deb]
+          uris: "https://download.docker.com/linux/debian/"
+          signed_by: /etc/apt/keyrings/docker.gpg
+          suites: "{{ ansible_facts['distribution_release'] }}"
+          components: [main]
+          # repo: "deb [signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian {{ ansible_distribution_release }} stable"
           state: present
-          filename: docker
-          update_cache: yes
+          # filename: docker
+          # update_cache: yes
 
       - name: 6/12] - Install Docker packages
         ansible.builtin.apt:

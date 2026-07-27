@@ -14,5 +14,5 @@ services:
       - "{{ frigate_dir }}/config/config.yaml:/config/config.yaml"
       - "{{ frigate_media }}:/media/frigate"
     environment:
-      FRIGATE_RTSP_PASSWORD: |
+      FRIGATE_RTSP_PASSWORD: |-
         {{ frigate_password }}
