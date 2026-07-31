@@ -5,9 +5,11 @@
   vars:
     automatic_reboot: "true"
     # --- TOR RELAY CONFIGURATION VARIABLES ---
-    tor_nickname: "1zvergrelay"
-    tor_contact_info: "1zverg.relay@proton.me"
-    tor_or_port: "443"  # Forward this!
+    tor_nickname: "Torelay0204"
+    tor_contact_info: "torelay.0204@proton.me"
+    bw_burst: "10"                  # Relay Bandwidth Burst Speed in MB
+    ctrl_port: "9051"
+    tor_or_port: "443"              # Forward this!
 
   tasks:
     - name: [1/13] | Install baseline required packages
