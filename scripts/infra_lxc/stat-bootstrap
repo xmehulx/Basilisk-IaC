@@ -1,0 +1,28 @@
+#!/usr/bin/python3
+
+import subprocess
+import json
+import ast
+
+def tor_stats():
+    result = subprocess.run(
+        ["ssh", "-i", "/home/infra/.ssh/<<SSH-Key>>", "{}@{}".format(user, host_tor), "python3", "/home/darshak/code.py"],
+        capture_output=True,
+        text=True,
+        #check=True,
+    )
+
+    tor_stats = ast.literal_eval(result.stdout)
+    #print("Return code:", result.returncode)
+    #print("STDOUT:")
+    print(json.dumps(tor_stats))
+    #print("STDERR:")
+    #print(result.stderr)
+
+if __name__ == "__main__":
+    user = "user"
+    host_tor = "10.0.0.14"
+    host_debian = "10.0.0.30"
+    host_wireguard = "10.0.0.213"
+
+    tor_stats()
