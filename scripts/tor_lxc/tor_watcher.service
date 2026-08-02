@@ -1,0 +1,13 @@
+[Unit]
+Description=Tor Resource Watcher
+After=network.target
+
+[Service]
+Type=simple
+EnvironmentFile=/path/to/secret
+ExecStart=/usr/bin/script
+Restart=always
+RestartSec=60
+
+[Install]
+WantedBy=multi-user.target
