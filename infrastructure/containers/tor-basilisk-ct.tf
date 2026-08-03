@@ -9,11 +9,12 @@ resource "proxmox_virtual_environment_container" "tor-tf" {
   }
   
   cpu {
-    cores = 2 
+    cores = 2
   }
 
   memory {
-    dedicated = 1024 
+    dedicated = 2048
+    swap = 512
   }
 
   disk {

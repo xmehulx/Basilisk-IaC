@@ -59,6 +59,10 @@ DNS = <<DNS Servers>>
 PublicKey = <<Public Key>>
 PresharedKey = <<Pre-Shared Key>>
 Endpoint = <<Public IP>>:51820              # Forward this port on the router
-AllowedIPs = 10.0.0.0/24, 10.0.10.0/24
+AllowedIPs = 192.168.1.0/24, 192.168.2.0/24
 PersistentKeepalive = 25 
 ```
+
+# Services
+## Tor
+Custom Tor service which keeps track of your system resources and sends alerts to your email/teams/phone
