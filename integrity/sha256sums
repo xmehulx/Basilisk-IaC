@@ -1,3 +1,4 @@
 c119249b8ca383d4c93a4f0c5214938dcd21838517c24a108ae31fe6904e05fa  scripts/ios/ios_shortcut.zip
 0a380e389691017e25799ae6b32fa863d84166c41f84d6effaa343f5df673edd  scripts/tor_lxc/tor-stats.py
 68f3e125d456e11b546e259fd3c015fbe116f9da451b66ee9aa7207f8b1d0428  scripts/tor_lxc/tor_watcher.service
+163b86a48af2c1393d2abe5e7914a83e53775f68d5cab619c79e68f95bb00fea  scripts/tor_lxc/tor-watcher
