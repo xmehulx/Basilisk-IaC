@@ -1,7 +1,18 @@
+/* This code provides following functionalities:
+ * Check PSI pressure for memory and CPU
+ * 	! Add "all" into logic for better analysis (only "some" rn from PSI)
+ * 	! Add other mertrics when needed (loadavg, CPU usage)
+ * 	! Add safe shutdown during spikes
+ * Alert via discord webhook
+ * Sleep using epoll, spending less clock cycles
+*/
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <dirent.h>
+#include <signal.h>
 #include <fcntl.h>
 #include <sys/epoll.h>
 #include <sys/timerfd.h>
@@ -17,21 +28,95 @@ typedef struct {
     float avg300;
 } PSIStats;
 
+typedef struct {
+    int pid;
+    char name[256];
+    unsigned long rss_kb; // Resident Set Size (RAM)
+    unsigned long utime;  // CPU ticks user
+    unsigned long stime;  // CPU ticks system
+} ProcessInfo;
+
+int find_max_mem_usage_proc(ProcessInfo *result) {
+    DIR *dir = opendir("/proc");
+    if (!dir) return -1;
+
+    struct dirent *entry;
+    unsigned long max_rss = 0;
+    result->pid = -1;
+
+    while ((entry = readdir(dir)) != NULL) {
+        // Check if directory name is a PID (all digits)
+        if (entry->d_type == DT_DIR) {
+            int pid = atoi(entry->d_name);
+            if (pid <= 0) continue;
+
+            char path[512];
+            snprintf(path, sizeof(path), "/proc/%d/status", pid);
+            FILE *proc_status = fopen(path, "r");
+            if (!proc_status) continue;
+
+            char line[256];
+            char name[256] = "unknown";
+            unsigned long rss = 0;
+
+            while (fgets(line, sizeof(line), proc_status)) {
+                if (strncmp(line, "Name:", 5) == 0) {
+                    sscanf(line, "Name:\t%s", name);
+                } else if (strncmp(line, "VmRSS:", 6) == 0) {
+                    sscanf(line, "VmRSS:\t%lu", &rss); // Value in kB
+                }
+            }
+            fclose(proc_status);
+
+            if (rss > max_rss) {
+                max_rss = rss;
+                result->pid = pid;
+                strncpy(result->name, name, sizeof(result->name) - 1);
+                result->rss_kb = rss;
+            }
+        }
+    }
+    closedir(dir);
+    return (result->pid != -1) ? 0 : -1;
+}
+
+int remediate_process(int pid, const char *proc_name) {
+    // Safety check: Never kill critical system pids (like systemd, kernel threads, init)
+    if (pid <= 100) {
+        fprintf(stderr, "Refusing to kill critical system PID: %d\n", pid);
+        return -1;
+    }
+
+    printf("~_~ High PSI detected! Highest RAM consumer is  (PID: %d)\n", 
+           proc_name, pid);
+
+    // SIGTERM for graceful shutdown
+    if (kill(pid, SIGTERM) == 0) {
+        // Optional: wait a moment, then send SIGKILL if it refuses to drop
+        usleep(2000000); // 2 seconds
+        // kill(pid, SIGKILL); 
+        return 0;
+    } else {
+        perror("Failed to send signal to process");
+	return 1;
+    }
+}
+
 int read_psi_pressure(const char *resource, PSIStats *stats) {
     char path[64];
     snprintf(path, sizeof(path), "/proc/pressure/%s", resource);
     
-    FILE *f = fopen(path, "r");
-    if (!f) return -1;
+    FILE *psi_file = fopen(path, "r");
+    if (!psi_file) return -1;
 
     char buffer[256];
-    if (fgets(buffer, sizeof(buffer), f)) {
+    if (fgets(buffer, sizeof(buffer), psi_file)) {
         unsigned long long total;
         sscanf(buffer, "some avg10=%f avg60=%f avg300=%f total=%llu", 
                &stats->avg10, &stats->avg60, &stats->avg300, &total);
     }
     
-    fclose(f);
+    fclose(psi_file);
     return 0;
 }
 
@@ -71,12 +156,13 @@ void send_discord_alert(const char *webhook_url, const char *title, const char *
 }
 
 int main(void) {
-    char webhook_url[1024];
+    char webhook_url[512];
     const char *api_key = getenv("basilisk_webhook");
     const int code_red = 15158332;
     const int code_orange = 16741120;
     const int code_yellow = 16773151;
     const int code_green = 446839;
+    
     if (api_key == NULL) {
 	fprintf(stderr, "Environment variable basilisk_webhook is not set\n");
 	exit(EXIT_FAILURE);
@@ -92,7 +178,7 @@ int main(void) {
     // 2. Create an epoll instance
     int epoll_fd = epoll_create1(0);
     if (epoll_fd == -1) {
-        perror("epoll_create1");
+        perror("epoll_create");
         exit(EXIT_FAILURE);
     }
 
@@ -148,16 +234,24 @@ int main(void) {
 		// For Memory first
                 if (read_psi_pressure("memory", &psi_stats) == 0) {
                     // Example threshold: avg10 pressure > 5.0%
-                    if (psi_stats.avg10 > 5.0) {
+                    if (psi_stats.avg10 > 15) {
+			// Add this logic after sustained 15% stall 
+			ProcessInfo top_proc;
+			if (find_max_mem_usage_proc(&top_proc) == 0) {
+		            char msg[128];
+			    snprintf(msg, sizeof(msg), "MEM_PSI (~10s): %.2f%% Beginning to find the culprit", psi_stats.avg10);
+			    send_discord_alert(webhook_url, "!ALERT! Memory Pressure High!", msg, code_red);
+			    remediate_process(top_proc.pid, top_proc.name);
+			}
+		    }
+		    else if (psi_stats.avg10 > 5.0) {
                         char msg[128];
                         snprintf(msg, sizeof(msg), "Kernel reports MEM_PSI (~10s): %.2f%%", psi_stats.avg10);
-			printf(webhook_url);
-                        send_discord_alert(webhook_url, "Memory Pressure High!", msg, code_red);
+			send_discord_alert(webhook_url, "Memory Pressure High!", msg, code_red);
                     }
 		    else if (psi_stats.avg10 > 1.25) {
 			char msg[128];
 			snprintf(msg, sizeof(msg), "Kernel reports MEM_PSI (~10s): %.2f%%", psi_stats.avg10);
-			printf(webhook_url);
 			send_discord_alert(webhook_url, "Memory Pressure Increasing!", msg, code_orange);
 		    }
                 }
@@ -165,13 +259,11 @@ int main(void) {
                     if (psi_stats.avg10 > 20.0) {
                         char msg[128];
                         snprintf(msg, sizeof(msg), "Kernel reports CPU_PSI (~10s): %.2f%%", psi_stats.avg10);
-			printf(webhook_url);
                         send_discord_alert(webhook_url, "CPU Pressure High!", msg, code_red);
                     }
 		    else if (psi_stats.avg10 > 5.0) {
 			char msg[128];
 			snprintf(msg, sizeof(msg), "Kernel reports CPU_PSI (~10s): %.2f%%", psi_stats.avg10);
-			printf(webhook_url);
 			send_discord_alert(webhook_url, "CPU Pressure Increasing!", msg, code_orange);
 		    }
                 }

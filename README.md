@@ -2,6 +2,19 @@
 
 IN PROGRESS!
 
+A home lab with the following services:
+1. Caddy
+2. Tor Relay
+3. Immich
+4. Wireguard
+5. SMB server
+6. Bitwarden
+7. SearXNG
+
+Last verified versions:
+- Ansible [core 2.19.10]
+
+
 # TO DO!!!!
 Frigate recording
 SMB share
@@ -11,9 +24,6 @@ SMB share
 - ALLOW TCP:22 from infra to tor
 - ALLOW TCP:443 IN
 - DENY OUT to 10.0.0.0/8
-
-Last verified versions:
-- Ansible [core 2.19.10]
 
 # 1. Setting up Basilisk
 ## 1.1 Set up infrastructure
