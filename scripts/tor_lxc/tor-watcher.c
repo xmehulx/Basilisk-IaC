@@ -3,8 +3,11 @@
  * 	! Add "all" into logic for better analysis (only "some" rn from PSI)
  * 	! Add other mertrics when needed (loadavg, CPU usage)
  * 	! Add safe shutdown during spikes
+ * 	    + Confirm if [!CORRECT!]  process ended?
+ *	    + Add force kill condition
  * Alert via discord webhook
  * Sleep using epoll, spending less clock cycles
+ * Checks SHA256sum to verify TORRC file's integrity
 */
 
 #include <stdio.h>
@@ -15,11 +18,31 @@
 #include <signal.h>
 #include <fcntl.h>
 #include <sys/epoll.h>
+#include <sys/inotify.h>
 #include <sys/timerfd.h>
 #include <curl/curl.h>
+#include <openssl/evp.h>
 
 #define MAX_EVENTS 5
 #define CHECK_INTERVAL_SEC 5
+
+
+/* STRUCTS
+ * *******************************************************
+ * PSIStats: 	Stores /proc/pressure/<<psi_file>> data
+ * ProcessInfo: Stores system process information
+ */
+
+/* FUNCTIONS
+ * *******************************************************
+ * get_sha256(const char *, char *)
+ * 	Calculate hex of the file at the path provided.
+ * find_max_mem_usage_proc(ProcessInfo *)
+ * 	Find the process using the most memory.
+ * remediate_process(int, const char *)
+ * read_psi_pressure(const char *, PSIStats *)
+ * send_discord_alert(const char *, const char *, const char *, int)
+ */
 
 // Function to read PSI (same as before)
 typedef struct {
@@ -36,6 +59,53 @@ typedef struct {
     unsigned long stime;  // CPU ticks system
 } ProcessInfo;
 
+// Get SHA256SUM of file
+int get_sha256(const char *filename, char *output_hex_buffer) {
+    FILE *file = fopen(filename, "rb");
+    if (!file) return -1;
+
+    EVP_MD_CTX *ctx = EVP_MD_CTX_new();
+    if (!ctx) {
+        fclose(file);
+        return -1;
+    }
+
+    if (EVP_DigestInit_ex(ctx, EVP_sha256(), NULL) != 1) {
+        EVP_MD_CTX_free(ctx);
+        fclose(file);
+        return -1;
+    }
+
+    unsigned char buffer[1024];
+    size_t bytes_read;
+    while ((bytes_read = fread(buffer, 1, sizeof(buffer), file)) > 0) {
+        if (EVP_DigestUpdate(ctx, buffer, bytes_read) != 1) {
+            EVP_MD_CTX_free(ctx);
+            fclose(file);
+            return -1;
+        }
+    }
+
+    unsigned char hash[EVP_MAX_MD_SIZE];
+    unsigned int hash_len = 0;
+    if (EVP_DigestFinal_ex(ctx, hash, &hash_len) != 1) {
+        EVP_MD_CTX_free(ctx);
+        fclose(file);
+        return -1;
+    }
+
+    // Convert raw binary hash to hex string
+    for (unsigned int i = 0; i < hash_len; i++) {
+        sprintf(output_hex_buffer + (i * 2), "%02x", hash[i]);
+    }
+    output_hex_buffer[hash_len * 2] = '\0';
+
+    EVP_MD_CTX_free(ctx);
+    fclose(file);
+    return 0;
+}
+
+// Find Process using the most memory
 int find_max_mem_usage_proc(ProcessInfo *result) {
     DIR *dir = opendir("/proc");
     if (!dir) return -1;
@@ -80,6 +150,7 @@ int find_max_mem_usage_proc(ProcessInfo *result) {
     return (result->pid != -1) ? 0 : -1;
 }
 
+// Close the process
 int remediate_process(int pid, const char *proc_name) {
     // Safety check: Never kill critical system pids (like systemd, kernel threads, init)
     if (pid <= 100) {
@@ -87,7 +158,7 @@ int remediate_process(int pid, const char *proc_name) {
         return -1;
     }
 
-    printf("~_~ High PSI detected! Highest RAM consumer is  (PID: %d)\n", 
+    printf("~_~ High PSI detected! Highest RAM consumer is %s (PID: %d)\n", 
            proc_name, pid);
 
     // SIGTERM for graceful shutdown
@@ -102,6 +173,7 @@ int remediate_process(int pid, const char *proc_name) {
     }
 }
 
+// Read PSI file
 int read_psi_pressure(const char *resource, PSIStats *stats) {
     char path[64];
     snprintf(path, sizeof(path), "/proc/pressure/%s", resource);
@@ -120,6 +192,8 @@ int read_psi_pressure(const char *resource, PSIStats *stats) {
     return 0;
 }
 
+
+// Send alert via Discord Webhook
 void send_discord_alert(const char *webhook_url, const char *title, const char *description, int color) {
     CURL *curl = curl_easy_init();
     if (!curl) return;
@@ -157,7 +231,9 @@ void send_discord_alert(const char *webhook_url, const char *title, const char *
 
 int main(void) {
     char webhook_url[512];
+    char torrc_hash[65];
     const char *api_key = getenv("basilisk_webhook");
+    const char *torrc_path = "/etc/tor/torrc";
     const int code_red = 15158332;
     const int code_orange = 16741120;
     const int code_yellow = 16773151;
@@ -178,7 +254,7 @@ int main(void) {
     // 2. Create an epoll instance
     int epoll_fd = epoll_create1(0);
     if (epoll_fd == -1) {
-        perror("epoll_create");
+        perror("epoll_create1");
         exit(EXIT_FAILURE);
     }
 
@@ -210,11 +286,34 @@ int main(void) {
         exit(EXIT_FAILURE);
     }
 
+    // 4.5. Initialize inotify to watch torrc configuration changes
+    int inotify_fd = inotify_init1(IN_NONBLOCK);
+    if (inotify_fd == -1) {
+        perror("inotify_init1");
+        exit(EXIT_FAILURE);
+    }
+
+    // Watch the specific file for modifications (or watch the parent directory if files are replaced atomically)
+    int watch_descriptor = inotify_add_watch(inotify_fd, torrc_path, IN_MODIFY);
+    if (watch_descriptor == -1) {
+        perror("inotify_add_watch");
+        // Non-fatal if file doesn't exist yet, but handle accordingly
+    }
+
+    // Register the inotify fd with epoll
+    struct epoll_event ev_inotify;
+    ev_inotify.events = EPOLLIN;
+    ev_inotify.data.fd = inotify_fd;
+    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, inotify_fd, &ev_inotify) == -1) {
+        perror("epoll_ctl (inotify)");
+        exit(EXIT_FAILURE);
+    }
+
     printf("PSI Monitor Daemon started using epoll. Waiting for events...\n");
 
     struct epoll_event events[MAX_EVENTS];
     
-    send_discord_alert(webhook_url, "Starting Tor-Watcher.c Service", "Watcher now monitoring tor_lxc resources", code_green);
+    send_discord_alert(webhook_url, "Starting Tor-Watcher.c Service v1.0b", "Watcher now monitoring tor_lxc resources", code_green);
     // 5. Event Loop (analogous to asyncio / selectors loop)
     while (1) {
         int nfds = epoll_wait(epoll_fd, events, MAX_EVENTS, -1);
@@ -248,7 +347,7 @@ int main(void) {
                         char msg[128];
                         snprintf(msg, sizeof(msg), "Kernel reports MEM_PSI (~10s): %.2f%%", psi_stats.avg10);
 			send_discord_alert(webhook_url, "Memory Pressure High!", msg, code_red);
-                    }
+                     }
 		    else if (psi_stats.avg10 > 1.25) {
 			char msg[128];
 			snprintf(msg, sizeof(msg), "Kernel reports MEM_PSI (~10s): %.2f%%", psi_stats.avg10);
@@ -268,12 +367,28 @@ int main(void) {
 		    }
                 }
 
+            } else if (events[i].data.fd == inotify_fd) {
+                // Read the inotify event buffer (required to clear the readiness state)
+                char buf[4096]
+                __attribute__ ((aligned(__alignof__(struct inotify_event))));
+                ssize_t len = read(inotify_fd, buf, sizeof(buf));
+                
+                if (len > 0) {
+                    // File was modified! Recalculate hash and trigger action
+                    char new_hash[65];
+                    if (get_sha256(torrc_path, new_hash) == 0) {
+                        char msg[256];
+                        snprintf(msg, sizeof(msg), "New SHA256sum: `%s`", new_hash);
+                        send_discord_alert(webhook_url, "TORRC MODIFIED!", msg, code_red);
+                    }
+                }
             }
+            
             // You can easily scale this to handle other file descriptors 
             // (e.g., listening sockets, signal fd, inotify fd) in the same loop!
         }
     }
-
+    close(inotify_fd);
     close(tfd);
     close(epoll_fd);
     curl_global_cleanup();
