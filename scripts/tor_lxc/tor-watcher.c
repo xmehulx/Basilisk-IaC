@@ -35,12 +35,12 @@
 
 /* FUNCTIONS
  * *******************************************************
- * get_sha256(const char *, char *)
- * 	Calculate hex of the file at the path provided.
  * find_max_mem_usage_proc(ProcessInfo *)
  * 	Find the process using the most memory.
- * remediate_process(int, const char *)
+ * get_sha256(const char *, char *)
+ * 	Calculate hex of the file at the path provided.
  * read_psi_pressure(const char *, PSIStats *)
+ * remediate_process(int, const char *)
  * send_discord_alert(const char *, const char *, const char *, int)
  */
 
@@ -231,9 +231,10 @@ void send_discord_alert(const char *webhook_url, const char *title, const char *
 
 int main(void) {
     char webhook_url[512];
-    char torrc_hash[65];
+    static char torrc_hash[65] = {0};
+    static char shalist_hash[65] = {0};
     const char *api_key = getenv("basilisk_webhook");
-    const char *torrc_path = "/etc/tor/torrc";
+    const char *tor_path = "/etc/tor";
     const int code_red = 15158332;
     const int code_orange = 16741120;
     const int code_yellow = 16773151;
@@ -293,8 +294,8 @@ int main(void) {
         exit(EXIT_FAILURE);
     }
 
-    // Watch the specific file for modifications (or watch the parent directory if files are replaced atomically)
-    int watch_descriptor = inotify_add_watch(inotify_fd, torrc_path, IN_MODIFY);
+    // Watch the specific parent directory if files are replaced atomically)
+    int watch_descriptor = inotify_add_watch(inotify_fd, tor_path, IN_MODIFY | IN_CLOSE_WRITE | IN_MOVED_TO);
     if (watch_descriptor == -1) {
         perror("inotify_add_watch");
         // Non-fatal if file doesn't exist yet, but handle accordingly
@@ -313,7 +314,7 @@ int main(void) {
 
     struct epoll_event events[MAX_EVENTS];
     
-    send_discord_alert(webhook_url, "Starting Tor-Watcher.c Service v1.0b", "Watcher now monitoring tor_lxc resources", code_green);
+    send_discord_alert(webhook_url, "Starting Tor-Watcher.c Service v1.1a", "Watcher now monitoring tor_lxc resources", code_green);
     // 5. Event Loop (analogous to asyncio / selectors loop)
     while (1) {
         int nfds = epoll_wait(epoll_fd, events, MAX_EVENTS, -1);
@@ -328,18 +329,16 @@ int main(void) {
                 uint64_t expirations;
                 read(tfd, &expirations, sizeof(expirations));
 
-                // Perform our periodic check
                 PSIStats psi_stats;
 		// For Memory first
                 if (read_psi_pressure("memory", &psi_stats) == 0) {
-                    // Example threshold: avg10 pressure > 5.0%
-                    if (psi_stats.avg10 > 15) {
+                    if (psi_stats.avg10 > 12) {
 			// Add this logic after sustained 15% stall 
 			ProcessInfo top_proc;
 			if (find_max_mem_usage_proc(&top_proc) == 0) {
 		            char msg[128];
 			    snprintf(msg, sizeof(msg), "MEM_PSI (~10s): %.2f%% Beginning to find the culprit", psi_stats.avg10);
-			    send_discord_alert(webhook_url, "!ALERT! Memory Pressure High!", msg, code_red);
+			    send_discord_alert(webhook_url, "!ALERT! Memory Pressure Critical!", msg, code_red);
 			    remediate_process(top_proc.pid, top_proc.name);
 			}
 		    }
@@ -354,8 +353,8 @@ int main(void) {
 			send_discord_alert(webhook_url, "Memory Pressure Increasing!", msg, code_orange);
 		    }
                 }
-	    if (read_psi_pressure("cpu", &psi_stats) == 0) {
-                    if (psi_stats.avg10 > 20.0) {
+	        if (read_psi_pressure("cpu", &psi_stats) == 0) {
+                    if (psi_stats.avg10 > 15.0) {
                         char msg[128];
                         snprintf(msg, sizeof(msg), "Kernel reports CPU_PSI (~10s): %.2f%%", psi_stats.avg10);
                         send_discord_alert(webhook_url, "CPU Pressure High!", msg, code_red);
@@ -369,19 +368,31 @@ int main(void) {
 
             } else if (events[i].data.fd == inotify_fd) {
                 // Read the inotify event buffer (required to clear the readiness state)
-                char buf[4096]
-                __attribute__ ((aligned(__alignof__(struct inotify_event))));
+		char buf[4096] __attribute__ ((aligned(__alignof__(struct inotify_event))));
                 ssize_t len = read(inotify_fd, buf, sizeof(buf));
                 
                 if (len > 0) {
-                    // File was modified! Recalculate hash and trigger action
-                    char new_hash[65];
-                    if (get_sha256(torrc_path, new_hash) == 0) {
-                        char msg[256];
-                        snprintf(msg, sizeof(msg), "New SHA256sum: `%s`", new_hash);
-                        send_discord_alert(webhook_url, "TORRC MODIFIED!", msg, code_red);
-                    }
-                }
+                    char *ptr = buf;
+                    while (ptr < buf + len) {
+                        struct inotify_event *event = (struct inotify_event *) ptr;
+                        
+                        // Check if the event happened to the specific file 'torrc'
+                        if (event->len > 0 && strcmp(event->name, "torrc") == 0) {
+                            // File was modified or replaced! Recalculate hash
+                            char new_hash[65];
+                            if (get_sha256("/etc/tor/torrc", new_hash) == 0) {
+                                if (strcmp(new_hash, torrc_hash) != 0) {
+				    char msg[256];
+                                    snprintf(msg, sizeof(msg), "New SHA-256: `%s`", new_hash);
+                                    send_discord_alert(webhook_url, "Tor Configuration Change Detected", msg, code_red);
+                                    printf("%s\n", msg);
+                                    strcpy(torrc_hash, new_hash);
+                                }  
+                            }
+                        }        
+                        ptr += sizeof(struct inotify_event) + event->len;
+                    } 
+	        }
             }
             
             // You can easily scale this to handle other file descriptors 

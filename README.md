@@ -12,8 +12,8 @@ A home lab with the following services:
 7. SearXNG
 
 Last verified versions:
-- Ansible [core 2.19.10]
-
+- Ansible       [core 2.19.10]
+- ESP32 board   [v3.3.11]
 
 # TO DO!!!!
 Frigate recording
