@@ -4,5 +4,6 @@
 *.backup
 *.bak
 *.swp
+*.tmp
 vault.yaml
 vault.yml
