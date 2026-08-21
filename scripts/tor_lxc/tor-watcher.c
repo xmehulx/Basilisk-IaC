@@ -12,6 +12,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <string.h>
 #include <unistd.h>
 #include <dirent.h>
@@ -108,45 +109,55 @@ int get_sha256(const char *filename, char *output_hex_buffer) {
 // Find Process using the most memory
 int find_max_mem_usage_proc(ProcessInfo *result) {
     DIR *dir = opendir("/proc");
-    if (!dir) return -1;
+    if (!dir) {
+	perror("opendir /proc failed");
+        return -1;
+    }
 
     struct dirent *entry;
     unsigned long max_rss = 0;
     result->pid = -1;
+    result->name[0] = '\0';
 
     while ((entry = readdir(dir)) != NULL) {
-        // Check if directory name is a PID (all digits)
-        if (entry->d_type == DT_DIR) {
-            int pid = atoi(entry->d_name);
-            if (pid <= 0) continue;
+	// Fix: Handle DT_UNKNOWN safely for virtual filesystems like /proc
+	if (entry->d_type != DT_DIR && entry->d_type != DT_UNKNOWN) continue;
 
-            char path[512];
-            snprintf(path, sizeof(path), "/proc/%d/status", pid);
-            FILE *proc_status = fopen(path, "r");
-            if (!proc_status) continue;
+        int pid = atoi(entry->d_name);
+        if (pid <= 0) continue;
 
-            char line[256];
-            char name[256] = "unknown";
-            unsigned long rss = 0;
+        char path[512];
+        snprintf(path, sizeof(path), "/proc/%d/status", pid);
+        FILE *proc_status = fopen(path, "r");
+        if (!proc_status) continue; // Can happen for processes we don't own
 
-            while (fgets(line, sizeof(line), proc_status)) {
-                if (strncmp(line, "Name:", 5) == 0) {
-                    sscanf(line, "Name:\t%s", name);
-                } else if (strncmp(line, "VmRSS:", 6) == 0) {
-                    sscanf(line, "VmRSS:\t%lu", &rss); // Value in kB
-                }
+        char line[256];
+        char name[256] = "unknown";
+        unsigned long rss = 0;
+
+        while (fgets(line, sizeof(line), proc_status)) {
+            if (strncmp(line, "Name:", 5) == 0) {
+                sscanf(line, "Name:\t%s", name);
+            } else if (strncmp(line, "VmRSS:", 6) == 0) {
+                sscanf(line, "VmRSS:\t%lu", &rss);
             }
-            fclose(proc_status);
+        }
+        fclose(proc_status);
 
-            if (rss > max_rss) {
-                max_rss = rss;
-                result->pid = pid;
-                strncpy(result->name, name, sizeof(result->name) - 1);
-                result->rss_kb = rss;
-            }
+        // Debug print to trace what it's scanning
+        // printf("Scanned PID %d (%s) - RSS: %lu kB\n", pid, name, rss);
+
+        if (rss > max_rss) {
+            max_rss = rss;
+            result->pid = pid;
+            strncpy(result->name, name, sizeof(result->name) - 1);
+            result->rss_kb = rss;
         }
     }
     closedir(dir);
+    printf("-> Finished scan. Max memory process found: PID %d (%s) with %lu kB\n", 
+           result->pid, result->name, result->rss_kb);
+
     return (result->pid != -1) ? 0 : -1;
 }
 
@@ -239,6 +250,11 @@ int main(void) {
     const int code_orange = 16741120;
     const int code_yellow = 16773151;
     const int code_green = 446839;
+    static time_t last_alert_timestamp = 0;
+    static bool cpu_alert_active = false;
+    static int cpu_alert_level = 0;
+    static bool mem_alert_active = false;
+    static int mem_alert_level = 0;
     
     if (api_key == NULL) {
 	fprintf(stderr, "Environment variable basilisk_webhook is not set\n");
@@ -314,7 +330,7 @@ int main(void) {
 
     struct epoll_event events[MAX_EVENTS];
     
-    send_discord_alert(webhook_url, "Starting Tor-Watcher.c Service v1.1a", "Watcher now monitoring tor_lxc resources", code_green);
+    send_discord_alert(webhook_url, "Starting Tor-Watcher.c Service v1.2", "Watcher now monitoring tor_lxc resources", code_green);
     // 5. Event Loop (analogous to asyncio / selectors loop)
     while (1) {
         int nfds = epoll_wait(epoll_fd, events, MAX_EVENTS, -1);
@@ -322,6 +338,7 @@ int main(void) {
             perror("epoll_wait");
             break;
         }
+	time_t current_time;
 
         for (int i = 0; i < nfds; i++) {
             if (events[i].data.fd == tfd) {
@@ -333,6 +350,7 @@ int main(void) {
 		// For Memory first
                 if (read_psi_pressure("memory", &psi_stats) == 0) {
                     if (psi_stats.avg10 > 12) {
+			current_time = time(NULL);
 			// Add this logic after sustained 15% stall 
 			ProcessInfo top_proc;
 			if (find_max_mem_usage_proc(&top_proc) == 0) {
@@ -354,16 +372,28 @@ int main(void) {
 		    }
                 }
 	        if (read_psi_pressure("cpu", &psi_stats) == 0) {
+		    current_time = time(NULL);
                     if (psi_stats.avg10 > 15.0) {
-                        char msg[128];
-                        snprintf(msg, sizeof(msg), "Kernel reports CPU_PSI (~10s): %.2f%%", psi_stats.avg10);
-                        send_discord_alert(webhook_url, "CPU Pressure High!", msg, code_red);
+			if ( !cpu_alert_active || cpu_alert_level < 2 || (current_time - last_alert_timestamp >= 5)) {
+                            char msg[128];
+			    cpu_alert_active = true;
+			    cpu_alert_level = 2;
+		            last_alert_timestamp = current_time;
+                            snprintf(msg, sizeof(msg), "Kernel reports CPU_PSI (~10s): %.2f%%", psi_stats.avg10);
+                            send_discord_alert(webhook_url, "CPU Pressure High!", msg, code_red);
+			}
                     }
 		    else if (psi_stats.avg10 > 5.0) {
-			char msg[128];
-			snprintf(msg, sizeof(msg), "Kernel reports CPU_PSI (~10s): %.2f%%", psi_stats.avg10);
-			send_discord_alert(webhook_url, "CPU Pressure Increasing!", msg, code_orange);
+			if (!cpu_alert_active || cpu_alert_level < 1 || (current_time - last_alert_timestamp >= 10)) {
+			    char msg[128];
+			    cpu_alert_active = true;
+			    cpu_alert_level = 1;
+			    last_alert_timestamp = current_time;
+			    snprintf(msg, sizeof(msg), "Kernel reports CPU_PSI (~10s): %.2f%%", psi_stats.avg10);
+			    send_discord_alert(webhook_url, "CPU Pressure Increasing!", msg, code_orange);
+			}
 		    }
+		    else cpu_alert_active = false;
                 }
 
             } else if (events[i].data.fd == inotify_fd) {
